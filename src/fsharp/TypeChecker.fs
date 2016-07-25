@@ -2076,7 +2076,7 @@ module GeneralizationHelpers =
             TrimUngeneralizableTypars genConstrainedTyparFlag inlineFlag generalizedTypars freeInEnv
 
     /// Condense type variables in positive position
-    let CondenseTypars (cenv, denv:DisplayEnv, generalizedTypars: Typars, tauTy, m) =
+    let CondenseTypars (cenv, nenv, denv:DisplayEnv, generalizedTypars: Typars, tauTy, m) =
 
         // The type of the value is ty11 * ... * ty1N -> ... -> tyM1 * ... * tyMM -> retTy
         // This is computed REGARDLESS of the arity of the expression.
@@ -2128,7 +2128,7 @@ module GeneralizationHelpers =
 
         // Condensation solves type variables eagerly and removes them from the generalization set 
         condensationTypars |> List.iter (fun tp -> 
-            ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css denv tp)
+            ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css nenv denv tp)
         generalizedTypars
 
     let CanonicalizePartialInferenceProblem (cenv,denv,m) tps =
@@ -2139,6 +2139,7 @@ module GeneralizationHelpers =
         |> RaiseOperationResult
 
     let ComputeAndGeneralizeGenericTypars (cenv,
+                                           nenv,
                                            denv:DisplayEnv,
                                            m,
                                            immut,
@@ -2166,7 +2167,7 @@ module GeneralizationHelpers =
                 let ty =  mkTyparTy tp
                 error(Error(FSComp.SR.tcNotSufficientlyGenericBecauseOfScope(NicePrint.prettyStringOfTy denv ty),m)))
             
-        let generalizedTypars = CondenseTypars(cenv, denv, generalizedTypars, tauTy, m)    
+        let generalizedTypars = CondenseTypars(cenv, nenv, denv, generalizedTypars, tauTy, m)    
 
         let generalizedTypars =  
             if canInferTypars then generalizedTypars 
@@ -6080,7 +6081,7 @@ and TcObjectExprBinding cenv (env: TcEnv) implty tpenv (absSlotInfo,bind) =
 
         let freeInEnv = GeneralizationHelpers.ComputeUngeneralizableTypars env
 
-        let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv,denv,m,immut,freeInEnv,false,CanGeneralizeConstrainedTypars,inlineFlag,Some(rhsExpr),declaredTypars,[],bindingTy,false)
+        let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv, WitnessEnv env.eNameResEnv,denv,m,immut,freeInEnv,false,CanGeneralizeConstrainedTypars,inlineFlag,Some(rhsExpr),declaredTypars,[],bindingTy,false)
         let declaredTypars = ChooseCanonicalDeclaredTyparsAfterInference cenv.g  env.DisplayEnv declaredTypars m
 
         let generalizedTypars = PlaceTyparsInDeclarationOrder declaredTypars generalizedTypars  
@@ -9945,7 +9946,7 @@ and TcLetBinding cenv isUse env containerInfo declKind tpenv (binds,bindsm,scope
                    [] 
                 else 
                    let freeInEnv = lazyFreeInEnv.Force()
-                   GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv,denv, m, immut, freeInEnv, canInferTypars, GeneralizationHelpers.CanGeneralizeConstrainedTyparsForDecl(declKind), inlineFlag, Some rhsExpr, allDeclaredTypars, maxInferredTypars,tauTy,false)
+                   GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv, WitnessEnv env.eNameResEnv, denv, m, immut, freeInEnv, canInferTypars, GeneralizationHelpers.CanGeneralizeConstrainedTyparsForDecl(declKind), inlineFlag, Some rhsExpr, allDeclaredTypars, maxInferredTypars,tauTy,false)
 
             let prelimValSchemes2 = GeneralizeVals cenv denv enclosingDeclaredTypars  generalizedTypars nameToPrelimValSchemeMap
 
@@ -10738,7 +10739,7 @@ and TcIncrementalLetRecGeneralization cenv scopem
                 let supportForBindings = newGeneralizableBindings |> List.collect (TcLetrecComputeSupportForBinding cenv)
                 GeneralizationHelpers.CanonicalizePartialInferenceProblem (cenv,denv,scopem) supportForBindings 
                  
-                let generalizedTyparsL = newGeneralizableBindings |> List.map (TcLetrecComputeAndGeneralizeGenericTyparsForBinding cenv denv freeInEnv) 
+                let generalizedTyparsL = newGeneralizableBindings |> List.map (TcLetrecComputeAndGeneralizeGenericTyparsForBinding cenv envNonRec.eNameResEnv denv freeInEnv) 
                 
                 // Generalize the bindings. 
                 let newGeneralizedRecBinds = (generalizedTyparsL,newGeneralizableBindings) ||> List.map2 (TcLetrecGeneralizeBinding cenv denv ) 
@@ -10758,7 +10759,7 @@ and TcIncrementalLetRecGeneralization cenv scopem
 //-------------------------------------------------------------------------
 
 /// Compute the type variables which may be generalized and perform the generalization 
-and TcLetrecComputeAndGeneralizeGenericTyparsForBinding cenv denv freeInEnv (pgrbind : PreGeneralizationRecursiveBinding)  =
+and TcLetrecComputeAndGeneralizeGenericTyparsForBinding cenv nenv denv freeInEnv (pgrbind : PreGeneralizationRecursiveBinding)  =
 
     let freeInEnv = Zset.diff freeInEnv (Zset.ofList typarOrder (NormalizeDeclaredTyparsForEquiRecursiveInference cenv.g pgrbind.ExtraGeneralizableTypars))
 
@@ -10785,7 +10786,7 @@ and TcLetrecComputeAndGeneralizeGenericTyparsForBinding cenv denv freeInEnv (pgr
     let maxInferredTypars = freeInTypeLeftToRight cenv.g false tau
 
     let canGeneralizeConstrained = GeneralizationHelpers.CanGeneralizeConstrainedTyparsForDecl rbinfo.DeclKind
-    let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars (cenv,denv,m,immut,freeInEnv,canInferTypars,canGeneralizeConstrained,inlineFlag, Some(expr), allDeclaredTypars, maxInferredTypars,tau,isCtor)
+    let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars (cenv,WitnessEnv nenv,denv,m,immut,freeInEnv,canInferTypars,canGeneralizeConstrained,inlineFlag, Some(expr), allDeclaredTypars, maxInferredTypars,tau,isCtor)
     generalizedTypars
 
 /// Compute the type variables which may have member constraints that need to be canonicalized prior to generalization 
@@ -11014,7 +11015,7 @@ let TcAndPublishValSpec (cenv, env, containerInfo: ContainerInfo, declKind, memF
 
             let flex = ExplicitTyparInfo(declaredTypars,declaredTypars,synCanInferTypars)
             
-            let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv,denv,id.idRange,canInferTypars,emptyFreeTypars,canInferTypars,CanGeneralizeConstrainedTypars,inlineFlag,None,allDeclaredTypars,freeInType,ty,false)
+            let generalizedTypars = GeneralizationHelpers.ComputeAndGeneralizeGenericTypars(cenv,WitnessEnv env.eNameResEnv,denv,id.idRange,canInferTypars,emptyFreeTypars,canInferTypars,CanGeneralizeConstrainedTypars,inlineFlag,None,allDeclaredTypars,freeInType,ty,false)
             
             let valscheme1 = PrelimValScheme1(id,flex,ty,Some(partialValReprInfo),memberInfoOpt,mutableFlag,inlineFlag,NormalVal,noArgOrRetAttribs,vis,false)
 
@@ -12788,7 +12789,7 @@ module TyconBindingChecking = begin
         for tp in unsolvedTyparsForRecursiveBlockInvolvingGeneralizedVariables do
             //printfn "solving unsolvedTyparsInvolvingGeneralizedVariable : %s #%d" tp.DisplayName tp.Stamp
             if (tp.Rigidity <> TyparRigidity.Rigid) && not tp.IsSolved then 
-                ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css denv tp
+                ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css (WitnessEnv envInitial.eNameResEnv) (* BAD! *) denv tp
           
         // Now that we know what we've generalized we can adjust the recursive references 
         let defnsCs,tpenv = TcTyconBindings_PassC_FixupRecursiveReferences cenv envInitial tpenv (denv, defnsBs, generalizedTyparsForRecursiveBlock, generalizedRecBinds, scopem)
@@ -15542,7 +15543,7 @@ let rec IterTyconsOfModuleOrNamespaceType f (mty:ModuleOrNamespaceType) =
 
 // Defaults get applied before the module signature is checked and before the implementation conditions on virtuals/overrides. 
 // Defaults get applied in priority order. Defaults listed last get priority 0 (lowest), 2nd last priority 1 etc. 
-let ApplyDefaults cenv g denvAtEnd m mexpr extraAttribs = 
+let ApplyDefaults cenv g nenv denvAtEnd m mexpr extraAttribs = 
     try
         let unsolved = Microsoft.FSharp.Compiler.FindUnsolved.UnsolvedTyparsOfModuleDef g cenv.amap denvAtEnd (mexpr,extraAttribs)
 
@@ -15572,7 +15573,8 @@ let ApplyDefaults cenv g denvAtEnd m mexpr extraAttribs =
         unsolved |> List.iter (fun tp ->     
             if not tp.IsSolved then 
                 if (tp.StaticReq <> NoStaticReq) then
-                    ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css denvAtEnd tp)
+                    ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css nenv denvAtEnd tp)
+
     with e -> errorRecovery e m
 
 
@@ -15597,12 +15599,12 @@ let CheckValueRestriction denvAtEnd rootSigOpt implFileTypePriorToSig m =
       try check implFileTypePriorToSig with e -> errorRecovery e m
 
 
-let SolveInternalUnknowns g cenv denvAtEnd mexpr extraAttribs =
+let SolveInternalUnknowns g cenv nenv denvAtEnd mexpr extraAttribs =
     let unsolved = Microsoft.FSharp.Compiler.FindUnsolved.UnsolvedTyparsOfModuleDef g cenv.amap denvAtEnd (mexpr,extraAttribs)
 
     unsolved |> List.iter (fun tp -> 
             if (tp.Rigidity <> TyparRigidity.Rigid) && not tp.IsSolved then 
-                ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css denvAtEnd tp)
+                ConstraintSolver.ChooseTyparSolutionAndSolve cenv.css nenv denvAtEnd tp)
 
 let CheckModuleSignature g cenv m denvAtEnd rootSigOpt implFileTypePriorToSig implFileSpecPriorToSig mexpr =
         match rootSigOpt with 
@@ -15676,7 +15678,7 @@ let TypeCheckOneImplFile
     let extraAttribs = topAttrs.mainMethodAttrs@topAttrs.netModuleAttrs@topAttrs.assemblyAttrs
     
     conditionallySuppressErrorReporting (checkForErrors()) (fun () ->
-        ApplyDefaults cenv g denvAtEnd m mexpr extraAttribs)
+        ApplyDefaults cenv g (WitnessEnv envAtEnd.eNameResEnv) denvAtEnd m mexpr extraAttribs)
 
     // Check completion of all classes defined across this file. 
     // NOTE: this is not a great technique if inner signatures are permitted to hide 
@@ -15691,7 +15693,7 @@ let TypeCheckOneImplFile
 
     // Solve unsolved internal type variables 
     conditionallySuppressErrorReporting (checkForErrors()) (fun () ->
-        SolveInternalUnknowns g cenv denvAtEnd mexpr extraAttribs)
+        SolveInternalUnknowns g cenv (WitnessEnv envAtEnd.eNameResEnv) denvAtEnd mexpr extraAttribs)
 
     // Check the module matches the signature 
     let implFileExprAfterSig = 

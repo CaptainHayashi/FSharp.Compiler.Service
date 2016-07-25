@@ -289,10 +289,7 @@ module Keywords =
           "measure"; "method"; "mixin"; 
           "object"; 
           "parallel"; "params";  "process"; "protected"; "pure"; 
-          "recursive"; 
-          "sealed"; 
-          "trait";  "tailcall";
-          "virtual"; "volatile"; ]
+          "sealed"; "tailcall"; "virtual"; ]
 
     let private unreserveWords = 
         keywordList |> List.choose (function (mode,keyword,_) -> if mode = FSHARP then Some keyword else None) 
